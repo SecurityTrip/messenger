@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     alias(libs.plugins.kotlinJvm)
     alias(libs.plugins.kotlinSerialization)
@@ -29,4 +31,9 @@ dependencies {
     testImplementation(libs.ktor.client.websockets)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.kotlinx.coroutines.test)
+}
+
+// Safety net: never let a hung test stall CI indefinitely.
+tasks.test {
+    timeout.set(Duration.ofMinutes(10))
 }
