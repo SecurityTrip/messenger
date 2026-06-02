@@ -15,6 +15,9 @@ relay that only ever sees ciphertext and public keys.
   and test against the **JVM target**; iOS is validated by CI on a `macos-14` runner.
 - **Kotlin 2.1.20**, **Gradle wrapper 8.11.1** (do NOT use system Gradle 9.x — too new for the KMP
   plugin). Always use `./gradlew`.
+- **JDK: build with 21 (or ≤23), NOT 24.** Gradle 8.11.1 chokes on Java 24 (`Could not create task …
+  Type T not present`). On the macOS box use Corretto 21:
+  `export JAVA_HOME=/Users/ilia/Library/Java/JavaVirtualMachines/corretto-21.0.3/Contents/Home`.
 - **Native-dependency ABI rule:** every KMP dependency must be built with Kotlin ≤ 2.1.20 (klib
   `abi_version ≤ 1.201.0`). Kotlin/Native is ABI-gated; the JVM is not (so a bad dep passes JVM but
   fails the iOS build). This is why `kotlinx-serialization-json` is pinned to **1.8.1** (1.9.0 is
@@ -84,8 +87,16 @@ server/       Ktor + Netty JVM relay, depends on :shared
     or `ReceiptReceived`; `markRead(localMessageId)` builds a READ receipt; receipts upgrade
     `MessageStatus` (SENT→DELIVERED→READ). Message rows store peerDeviceId + senderMessageId so a
     receipt can be addressed back and mapped to the sender's original message.
-- ⌛ Phase 6 (needs a Mac): Compose Multiplatform iOS UI, iOS Keychain `SecureKeyStore` impl, Xcode
-  app, APNs push. Also pending: TLS/wss (deployment — reverse proxy or Ktor cert).
+- ⌛ Phase 6 (needs a Mac, in progress):
+  - ✅ **iOS Keychain `SecureKeyStore`** — `KeychainSecureKeyStore` in `iosMain/security/`, backed by
+    Security-framework generic-password items (kSecClassGenericPassword, keyed by (service, alias),
+    `AfterFirstUnlockThisDeviceOnly`). App passes it to `MessengerComponent.create`.
+    Caveat: the bare Kotlin/Native simulator test runner has no app entitlement / keychain access
+    group, so `securityd` returns `errSecNotAvailable` (-25291); `KeychainSecureKeyStoreTest` asserts
+    full behavior when the keychain is reachable and **skips otherwise** (real coverage will come from
+    the app's host-app test target). All iOS targets compile + framework links.
+  - ⌛ Still pending: Compose Multiplatform iOS UI, Xcode app, APNs push.
+- ⌛ Also pending: TLS/wss (deployment — reverse proxy or Ktor cert).
 
 ## Git
 `origin` = https://github.com/SecurityTrip/messenger.git, branch `master`.
