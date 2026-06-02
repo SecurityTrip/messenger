@@ -1,0 +1,20 @@
+-- The single local account: our long-term identity. The Ed25519 private key is stored
+-- encrypted-at-rest (BlobCipher with the Keychain master key).
+CREATE TABLE Account (
+    id INTEGER NOT NULL PRIMARY KEY,          -- always 1 (single-account app)
+    userId TEXT NOT NULL,
+    identityPublicKey BLOB NOT NULL,          -- Ed25519 public
+    identityPrivateKeyEnc BLOB NOT NULL,      -- Ed25519 private, encrypted
+    registrationId INTEGER NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+selectAccount:
+SELECT * FROM Account WHERE id = 1;
+
+upsertAccount:
+INSERT OR REPLACE INTO Account(id, userId, identityPublicKey, identityPrivateKeyEnc, registrationId, createdAt)
+VALUES (1, ?, ?, ?, ?, ?);
+
+deleteAccount:
+DELETE FROM Account;

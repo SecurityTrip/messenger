@@ -1,0 +1,25 @@
+-- Chat history. body is encrypted-at-rest (bodyEnc); direction 0=incoming, 1=outgoing;
+-- status is the MessageStatus ordinal.
+CREATE TABLE Message (
+    id TEXT NOT NULL PRIMARY KEY,
+    contactId TEXT NOT NULL,
+    direction INTEGER NOT NULL,
+    bodyEnc BLOB NOT NULL,
+    timestamp INTEGER NOT NULL,
+    status INTEGER NOT NULL
+);
+
+CREATE INDEX message_contact_time ON Message(contactId, timestamp);
+
+insertMessage:
+INSERT INTO Message(id, contactId, direction, bodyEnc, timestamp, status)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectMessagesForContact:
+SELECT * FROM Message WHERE contactId = ? ORDER BY timestamp ASC;
+
+updateMessageStatus:
+UPDATE Message SET status = ? WHERE id = ?;
+
+deleteMessagesForContact:
+DELETE FROM Message WHERE contactId = ?;

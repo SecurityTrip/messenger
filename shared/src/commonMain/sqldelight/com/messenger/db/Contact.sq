@@ -1,0 +1,21 @@
+-- A remote peer. identityPublicKey is their Ed25519 identity (basis for safety-number
+-- verification); verified is 0/1 once the user has confirmed the safety number out-of-band.
+CREATE TABLE Contact (
+    userId TEXT NOT NULL PRIMARY KEY,
+    identityPublicKey BLOB NOT NULL,
+    displayName TEXT,
+    verified INTEGER NOT NULL DEFAULT 0
+);
+
+upsertContact:
+INSERT OR REPLACE INTO Contact(userId, identityPublicKey, displayName, verified)
+VALUES (?, ?, ?, ?);
+
+selectContact:
+SELECT * FROM Contact WHERE userId = ?;
+
+selectAllContacts:
+SELECT * FROM Contact ORDER BY displayName;
+
+setContactVerified:
+UPDATE Contact SET verified = ? WHERE userId = ?;

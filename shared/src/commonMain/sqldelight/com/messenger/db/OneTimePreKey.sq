@@ -1,0 +1,32 @@
+-- One-time prekeys: consumed once by an incoming session, then marked used (0/1).
+CREATE TABLE OneTimePreKey (
+    id INTEGER NOT NULL PRIMARY KEY,
+    publicKey BLOB NOT NULL,
+    privateKeyEnc BLOB NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+);
+
+insertOneTimePreKey:
+INSERT OR REPLACE INTO OneTimePreKey(id, publicKey, privateKeyEnc, used)
+VALUES (?, ?, ?, 0);
+
+selectOneTimePreKey:
+SELECT * FROM OneTimePreKey WHERE id = ?;
+
+markOneTimePreKeyUsed:
+UPDATE OneTimePreKey SET used = 1 WHERE id = ?;
+
+countUnusedOneTimePreKeys:
+SELECT COUNT(*) FROM OneTimePreKey WHERE used = 0;
+
+selectUnusedOneTimePreKey:
+SELECT * FROM OneTimePreKey WHERE used = 0 ORDER BY id LIMIT 1;
+
+selectAllUnusedOneTimePreKeys:
+SELECT id, publicKey FROM OneTimePreKey WHERE used = 0 ORDER BY id;
+
+selectMaxOneTimePreKeyId:
+SELECT MAX(id) FROM OneTimePreKey;
+
+deleteOneTimePreKey:
+DELETE FROM OneTimePreKey WHERE id = ?;

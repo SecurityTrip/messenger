@@ -1,0 +1,24 @@
+-- Bob-side signed prekeys: the private key is encrypted-at-rest.
+CREATE TABLE SignedPreKey (
+    id INTEGER NOT NULL PRIMARY KEY,
+    publicKey BLOB NOT NULL,
+    privateKeyEnc BLOB NOT NULL,
+    signature BLOB NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+insertSignedPreKey:
+INSERT OR REPLACE INTO SignedPreKey(id, publicKey, privateKeyEnc, signature, createdAt)
+VALUES (?, ?, ?, ?, ?);
+
+selectSignedPreKey:
+SELECT * FROM SignedPreKey WHERE id = ?;
+
+selectLatestSignedPreKey:
+SELECT * FROM SignedPreKey ORDER BY createdAt DESC LIMIT 1;
+
+selectMaxSignedPreKeyId:
+SELECT MAX(id) FROM SignedPreKey;
+
+deleteSignedPreKey:
+DELETE FROM SignedPreKey WHERE id = ?;

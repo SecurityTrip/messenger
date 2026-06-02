@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.fleet/
+.kotlin/
+local.properties
+
+# macOS / Xcode (for iOS app, built on Mac)
+.DS_Store
+xcuserdata/
+*.xcuserstate
+iosApp/Pods/
+iosApp/*.xcworkspace/xcuserdata/
+
+# Misc
+*.log
+.env

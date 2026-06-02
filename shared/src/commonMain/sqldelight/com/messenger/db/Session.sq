@@ -1,0 +1,16 @@
+-- One Double Ratchet session per contact. stateEnc is the encrypted RatchetStateSnapshot JSON.
+CREATE TABLE Session (
+    contactId TEXT NOT NULL PRIMARY KEY,
+    stateEnc BLOB NOT NULL,
+    updatedAt INTEGER NOT NULL
+);
+
+upsertSession:
+INSERT OR REPLACE INTO Session(contactId, stateEnc, updatedAt)
+VALUES (?, ?, ?);
+
+selectSession:
+SELECT stateEnc FROM Session WHERE contactId = ?;
+
+deleteSession:
+DELETE FROM Session WHERE contactId = ?;

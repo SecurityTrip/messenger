@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Validates the entire backend: crypto, X3DH, Double Ratchet, storage and the relay server.
+  jvm:
+    name: JVM tests (shared + server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run shared + server tests
+        run: ./gradlew :shared:jvmTest :server:test --console=plain
+
+  # Compiles the iOS targets and runs the SAME common tests on the iOS simulator,
+  # validating that libsodium, the SQLDelight native driver and Ktor/Darwin work on iOS.
+  ios:
+    name: iOS simulator tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run shared tests on iOS simulator
+        run: ./gradlew :shared:iosSimulatorArm64Test --console=plain
+      - name: Build iOS framework
+        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --console=plain
