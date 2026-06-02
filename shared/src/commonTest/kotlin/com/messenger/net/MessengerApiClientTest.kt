@@ -1,5 +1,7 @@
 package com.messenger.net
 
+import com.messenger.protocol.wire.DeviceBundle
+import com.messenger.protocol.wire.DeviceBundles
 import com.messenger.protocol.wire.RegisterRequest
 import com.messenger.protocol.wire.RegisterResponse
 import com.messenger.protocol.wire.UploadKeysRequest
@@ -32,32 +34,32 @@ class MessengerApiClientTest {
         )
 
     @Test
-    fun fetchBundle_parsesServerResponse() = runTest {
-        val bundle = WirePreKeyBundle(
-            identityKey = "aWs=",
-            signedPreKeyId = 1,
-            signedPreKey = "c3Br",
-            signedPreKeySignature = "c2ln",
-            oneTimePreKeyId = 100,
-            oneTimePreKey = "b3Rr",
+    fun fetchBundles_parsesServerResponse() = runTest {
+        val bundles = DeviceBundles(
+            userId = "bob",
+            devices = listOf(
+                DeviceBundle("phone", WirePreKeyBundle("aWs=", 1, "c3Br", "c2ln", 100, "b3Rr")),
+                DeviceBundle("laptop", WirePreKeyBundle("aWsy", 1, "c3Br", "c2ln", null, null)),
+            ),
         )
         val engine = MockEngine {
             respond(
-                content = json.encodeToString(WirePreKeyBundle.serializer(), bundle),
+                content = json.encodeToString(DeviceBundles.serializer(), bundles),
                 status = HttpStatusCode.OK,
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
 
-        val result = clientWith(engine).fetchBundle("bob")
-        assertEquals(100, result?.oneTimePreKeyId)
-        assertEquals("c3Br", result?.signedPreKey)
+        val result = clientWith(engine).fetchBundles("bob")
+        assertEquals(2, result?.devices?.size)
+        assertEquals("phone", result?.devices?.first()?.deviceId)
+        assertEquals(100, result?.devices?.first()?.bundle?.oneTimePreKeyId)
     }
 
     @Test
-    fun fetchBundle_returnsNullOn404() = runTest {
+    fun fetchBundles_returnsNullOn404() = runTest {
         val engine = MockEngine { respond("", HttpStatusCode.NotFound) }
-        assertNull(clientWith(engine).fetchBundle("ghost"))
+        assertNull(clientWith(engine).fetchBundles("ghost"))
     }
 
     @Test
@@ -74,16 +76,16 @@ class MessengerApiClientTest {
         }
         val client = clientWith(engine)
 
-        val token = client.register(RegisterRequest("alice", "aWs=", registrationId = 5))
+        val token = client.register(RegisterRequest("alice", "aliceD", "aWs=", registrationId = 5))
         assertEquals("tok123", token)
         assertEquals("tok123", client.authToken)
 
-        client.uploadKeys("alice", UploadKeysRequest(1, "c3Br", "c2ln", listOf(WireOneTimePreKey(1, "b3Rr"))))
+        client.uploadKeys("alice", "aliceD", UploadKeysRequest(1, "c3Br", "c2ln", listOf(WireOneTimePreKey(1, "b3Rr"))))
 
         assertEquals(2, engine.requestHistory.size)
         assertEquals("/register", engine.requestHistory[0].url.encodedPath)
-        assertEquals(HttpMethod.Post, engine.requestHistory[0].method)
-        assertEquals("/keys/alice", engine.requestHistory[1].url.encodedPath)
+        assertEquals("/keys/alice/aliceD", engine.requestHistory[1].url.encodedPath)
+        assertEquals(HttpMethod.Post, engine.requestHistory[1].method)
         assertEquals("Bearer tok123", engine.requestHistory[1].headers[HttpHeaders.Authorization])
     }
 }

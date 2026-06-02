@@ -20,15 +20,20 @@ class MessageStore(
         db.messageQueries.insertMessage(
             id = message.id,
             contactId = message.contactId,
+            peerDeviceId = message.peerDeviceId,
             direction = message.direction.ordinal.toLong(),
             bodyEnc = cipher.encrypt(message.body.encodeToByteArray()),
             timestamp = message.timestamp,
             status = message.status.ordinal.toLong(),
+            senderMessageId = message.senderMessageId,
         )
     }
 
     fun messagesForContact(contactId: String): List<ChatMessage> =
         db.messageQueries.selectMessagesForContact(contactId).executeAsList().map { it.toChatMessage() }
+
+    fun messageById(id: String): ChatMessage? =
+        db.messageQueries.selectMessageById(id).executeAsOneOrNull()?.toChatMessage()
 
     /** A reactive stream of the conversation, updating whenever messages change. */
     fun observeMessages(contactId: String, context: CoroutineContext): Flow<List<ChatMessage>> =
@@ -47,5 +52,7 @@ class MessageStore(
         body = cipher.decrypt(bodyEnc)?.decodeToString() ?: "<decryption failed>",
         timestamp = timestamp,
         status = MessageStatus.fromOrdinal(status.toInt()),
+        peerDeviceId = peerDeviceId,
+        senderMessageId = senderMessageId,
     )
 }

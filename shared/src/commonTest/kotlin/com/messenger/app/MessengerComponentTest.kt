@@ -1,5 +1,6 @@
 package com.messenger.app
 
+import com.messenger.app.ConversationManager.ReceiveResult
 import com.messenger.db.DatabaseDriverFactory
 import com.messenger.security.InMemorySecureKeyStore
 import kotlinx.coroutines.test.runTest
@@ -19,16 +20,14 @@ class MessengerComponentTest {
         val alice = component()
         val bob = component()
 
-        alice.conversations.ensureProvisioned("alice")
-        bob.conversations.ensureProvisioned("bob", oneTimePreKeyCount = 3)
+        alice.conversations.ensureProvisioned("alice", "aliceD")
+        bob.conversations.ensureProvisioned("bob", "bobD", oneTimePreKeyCount = 3)
 
-        // Drive a conversation directly through the wired managers (no network needed here).
-        val bundle = bob.conversations.publishBundle()
-        val wire = alice.conversations.startConversation("bob", bundle, "wired hello")
-        assertEquals("wired hello", bob.conversations.receive("alice", wire).body)
+        val first = alice.conversations.startConversation("bob", deviceBundlesFor(bob.conversations), "wired hello").single()
+        assertEquals("wired hello", (bob.conversations.receive(first) as ReceiveResult.MessageReceived).message.body)
 
-        val reply = bob.conversations.send("alice", "wired reply")
-        assertEquals("wired reply", alice.conversations.receive("bob", reply).body)
+        val reply = bob.conversations.send("alice", "wired reply").single()
+        assertEquals("wired reply", (alice.conversations.receive(reply) as ReceiveResult.MessageReceived).message.body)
 
         alice.close()
         bob.close()

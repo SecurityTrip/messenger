@@ -1,16 +1,22 @@
--- One Double Ratchet session per contact. stateEnc is the encrypted RatchetStateSnapshot JSON.
+-- One Double Ratchet session per peer DEVICE (contactId = peer user, deviceId = peer device).
+-- stateEnc is the encrypted RatchetStateSnapshot JSON.
 CREATE TABLE Session (
-    contactId TEXT NOT NULL PRIMARY KEY,
+    contactId TEXT NOT NULL,
+    deviceId TEXT NOT NULL,
     stateEnc BLOB NOT NULL,
-    updatedAt INTEGER NOT NULL
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (contactId, deviceId)
 );
 
 upsertSession:
-INSERT OR REPLACE INTO Session(contactId, stateEnc, updatedAt)
-VALUES (?, ?, ?);
+INSERT OR REPLACE INTO Session(contactId, deviceId, stateEnc, updatedAt)
+VALUES (?, ?, ?, ?);
 
 selectSession:
-SELECT stateEnc FROM Session WHERE contactId = ?;
+SELECT stateEnc FROM Session WHERE contactId = ? AND deviceId = ?;
+
+selectSessionsForContact:
+SELECT deviceId, stateEnc FROM Session WHERE contactId = ?;
 
 deleteSession:
-DELETE FROM Session WHERE contactId = ?;
+DELETE FROM Session WHERE contactId = ? AND deviceId = ?;

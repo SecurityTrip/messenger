@@ -17,9 +17,10 @@ class IdentityStore(
     private val db: MessengerDatabase,
     private val cipher: BlobCipher,
 ) {
-    fun saveAccount(userId: String, identity: SigningKeyPair, registrationId: Int, now: Long) {
+    fun saveAccount(userId: String, deviceId: String, identity: SigningKeyPair, registrationId: Int, now: Long) {
         db.accountQueries.upsertAccount(
             userId = userId,
+            deviceId = deviceId,
             identityPublicKey = identity.publicKey,
             identityPrivateKeyEnc = cipher.encrypt(identity.privateKey),
             registrationId = registrationId.toLong(),
@@ -28,6 +29,8 @@ class IdentityStore(
     }
 
     fun accountUserId(): String? = db.accountQueries.selectAccount().executeAsOneOrNull()?.userId
+
+    fun accountDeviceId(): String? = db.accountQueries.selectAccount().executeAsOneOrNull()?.deviceId
 
     fun registrationId(): Int? = db.accountQueries.selectAccount().executeAsOneOrNull()?.registrationId?.toInt()
 

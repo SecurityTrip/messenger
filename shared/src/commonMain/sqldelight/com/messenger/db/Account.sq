@@ -1,8 +1,9 @@
--- The single local account: our long-term identity. The Ed25519 private key is stored
--- encrypted-at-rest (BlobCipher with the Keychain master key).
+-- This device's account identity. A user may have several devices; this row is THIS device.
+-- The Ed25519 private key is stored encrypted-at-rest (BlobCipher with the Keychain master key).
 CREATE TABLE Account (
-    id INTEGER NOT NULL PRIMARY KEY,          -- always 1 (single-account app)
+    id INTEGER NOT NULL PRIMARY KEY,          -- always 1 (one local device account)
     userId TEXT NOT NULL,
+    deviceId TEXT NOT NULL,
     identityPublicKey BLOB NOT NULL,          -- Ed25519 public
     identityPrivateKeyEnc BLOB NOT NULL,      -- Ed25519 private, encrypted
     registrationId INTEGER NOT NULL,
@@ -13,8 +14,8 @@ selectAccount:
 SELECT * FROM Account WHERE id = 1;
 
 upsertAccount:
-INSERT OR REPLACE INTO Account(id, userId, identityPublicKey, identityPrivateKeyEnc, registrationId, createdAt)
-VALUES (1, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO Account(id, userId, deviceId, identityPublicKey, identityPrivateKeyEnc, registrationId, createdAt)
+VALUES (1, ?, ?, ?, ?, ?, ?);
 
 deleteAccount:
 DELETE FROM Account;

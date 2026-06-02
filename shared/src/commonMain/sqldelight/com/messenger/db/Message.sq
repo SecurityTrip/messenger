@@ -1,22 +1,29 @@
 -- Chat history. body is encrypted-at-rest (bodyEnc); direction 0=incoming, 1=outgoing;
 -- status is the MessageStatus ordinal.
+-- peerDeviceId: for incoming messages, the sender's device (so read receipts can be addressed back).
+-- senderMessageId: for incoming messages, the sender's wire messageId (referenced by receipts).
 CREATE TABLE Message (
     id TEXT NOT NULL PRIMARY KEY,
     contactId TEXT NOT NULL,
+    peerDeviceId TEXT,
     direction INTEGER NOT NULL,
     bodyEnc BLOB NOT NULL,
     timestamp INTEGER NOT NULL,
-    status INTEGER NOT NULL
+    status INTEGER NOT NULL,
+    senderMessageId TEXT
 );
 
 CREATE INDEX message_contact_time ON Message(contactId, timestamp);
 
 insertMessage:
-INSERT INTO Message(id, contactId, direction, bodyEnc, timestamp, status)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO Message(id, contactId, peerDeviceId, direction, bodyEnc, timestamp, status, senderMessageId)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectMessagesForContact:
 SELECT * FROM Message WHERE contactId = ? ORDER BY timestamp ASC;
+
+selectMessageById:
+SELECT * FROM Message WHERE id = ?;
 
 updateMessageStatus:
 UPDATE Message SET status = ? WHERE id = ?;

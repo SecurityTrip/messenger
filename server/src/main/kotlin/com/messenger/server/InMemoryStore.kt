@@ -1,22 +1,22 @@
 package com.messenger.server
 
+import com.messenger.protocol.wire.DeviceBundle
+import com.messenger.protocol.wire.DeviceBundles
 import com.messenger.protocol.wire.RegisterRequest
-import com.messenger.protocol.wire.RelayEnvelope
 import com.messenger.protocol.wire.UploadKeysRequest
 import com.messenger.protocol.wire.WireOneTimePreKey
 import com.messenger.protocol.wire.WirePreKeyBundle
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
- * In-memory backing store for the dev relay server. Holds only public key material and ciphertext
- * envelopes — never plaintext or private keys. Swap for a persistent store (Postgres/Redis) later.
+ * In-memory accounts/keys/tokens for the dev relay server, addressed per (userId, deviceId). Holds
+ * only public key material — never plaintext or private keys. Swap for a persistent store later.
  */
 class InMemoryStore {
 
-    private data class Account(val userId: String, val identityKey: String, val registrationId: Int)
+    private data class Account(val userId: String, val deviceId: String, val identityKey: String, val registrationId: Int)
 
     private class KeyMaterial(
         @Volatile var signedPreKeyId: Int,
@@ -25,37 +25,31 @@ class InMemoryStore {
         val oneTimePreKeys: ArrayDeque<WireOneTimePreKey>,
     )
 
-    private val accounts = ConcurrentHashMap<String, Account>()
-    private val keys = ConcurrentHashMap<String, KeyMaterial>()
-    private val queues = ConcurrentHashMap<String, ConcurrentLinkedQueue<RelayEnvelope>>()
-    private val tokens = ConcurrentHashMap<String, String>()
+    // userId -> deviceId -> value
+    private val accounts = ConcurrentHashMap<String, ConcurrentHashMap<String, Account>>()
+    private val keys = ConcurrentHashMap<String, ConcurrentHashMap<String, KeyMaterial>>()
+    private val tokens = ConcurrentHashMap<String, ConcurrentHashMap<String, String>>()
     private val secureRandom = SecureRandom()
 
-    /** Register (or re-register) the account and return a fresh bearer token. */
+    /** Register (or re-register) a device and return a fresh bearer token. */
     fun register(request: RegisterRequest): String {
-        accounts[request.userId] = Account(request.userId, request.identityKey, request.registrationId)
+        accounts.getOrPut(request.userId) { ConcurrentHashMap() }[request.deviceId] =
+            Account(request.userId, request.deviceId, request.identityKey, request.registrationId)
         val token = newToken()
-        tokens[request.userId] = token
+        tokens.getOrPut(request.userId) { ConcurrentHashMap() }[request.deviceId] = token
         return token
     }
 
-    fun exists(userId: String): Boolean = accounts.containsKey(userId)
+    fun exists(userId: String, deviceId: String): Boolean = accounts[userId]?.containsKey(deviceId) == true
 
-    /** Constant-time-ish check that [token] is the current token issued to [userId]. */
-    fun validateToken(userId: String, token: String?): Boolean {
+    fun validateToken(userId: String, deviceId: String, token: String?): Boolean {
         if (token == null) return false
-        val expected = tokens[userId] ?: return false
-        return expected == token
-    }
-
-    private fun newToken(): String {
-        val bytes = ByteArray(32).also { secureRandom.nextBytes(it) }
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        return tokens[userId]?.get(deviceId) == token
     }
 
     @Synchronized
-    fun uploadKeys(userId: String, request: UploadKeysRequest) {
-        keys[userId] = KeyMaterial(
+    fun uploadKeys(userId: String, deviceId: String, request: UploadKeysRequest) {
+        keys.getOrPut(userId) { ConcurrentHashMap() }[deviceId] = KeyMaterial(
             signedPreKeyId = request.signedPreKeyId,
             signedPreKey = request.signedPreKey,
             signedPreKeySignature = request.signedPreKeySignature,
@@ -63,11 +57,21 @@ class InMemoryStore {
         )
     }
 
-    /** Build a prekey bundle, consuming one one-time prekey if any remain. */
+    /** Prekey bundles for every registered device of [userId], consuming one OTK each. */
     @Synchronized
-    fun fetchBundle(userId: String): WirePreKeyBundle? {
-        val account = accounts[userId] ?: return null
-        val material = keys[userId] ?: return null
+    fun fetchAllBundles(userId: String): DeviceBundles? {
+        val devices = accounts[userId] ?: return null
+        if (devices.isEmpty()) return null
+        val bundles = devices.keys.sorted().mapNotNull { deviceId ->
+            bundleLocked(userId, deviceId)?.let { DeviceBundle(deviceId, it) }
+        }
+        if (bundles.isEmpty()) return null
+        return DeviceBundles(userId, bundles)
+    }
+
+    private fun bundleLocked(userId: String, deviceId: String): WirePreKeyBundle? {
+        val account = accounts[userId]?.get(deviceId) ?: return null
+        val material = keys[userId]?.get(deviceId) ?: return null
         val oneTime = material.oneTimePreKeys.removeFirstOrNull()
         return WirePreKeyBundle(
             identityKey = account.identityKey,
@@ -79,19 +83,8 @@ class InMemoryStore {
         )
     }
 
-    fun unusedOneTimePreKeyCount(userId: String): Int = keys[userId]?.let { synchronized(this) { it.oneTimePreKeys.size } } ?: 0
-
-    fun enqueue(envelope: RelayEnvelope) {
-        queues.computeIfAbsent(envelope.to) { ConcurrentLinkedQueue() }.add(envelope)
-    }
-
-    /** Remove and return all queued envelopes for [userId] (delivered on (re)connect). */
-    fun drainQueue(userId: String): List<RelayEnvelope> {
-        val queue = queues[userId] ?: return emptyList()
-        val drained = ArrayList<RelayEnvelope>()
-        while (true) {
-            drained.add(queue.poll() ?: break)
-        }
-        return drained
+    private fun newToken(): String {
+        val bytes = ByteArray(32).also { secureRandom.nextBytes(it) }
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 }

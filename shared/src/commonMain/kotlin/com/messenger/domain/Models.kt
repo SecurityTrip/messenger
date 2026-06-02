@@ -33,6 +33,10 @@ data class ChatMessage(
     val body: String,
     val timestamp: Long,
     val status: MessageStatus,
+    /** For incoming messages: the sender's device id (so read receipts can be addressed back). */
+    val peerDeviceId: String? = null,
+    /** For incoming messages: the sender's wire message id, referenced by receipts. */
+    val senderMessageId: String? = null,
 )
 
 /** A remote peer. [identityPublicKey] is their Ed25519 identity (basis for safety-number checks). */

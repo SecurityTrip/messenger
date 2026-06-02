@@ -1,9 +1,8 @@
 package com.messenger.server
 
+import com.messenger.protocol.wire.ClientFrame
 import com.messenger.protocol.wire.RegisterRequest
 import com.messenger.protocol.wire.RegisterResponse
-import com.messenger.protocol.wire.RelayAck
-import com.messenger.protocol.wire.RelayEnvelope
 import com.messenger.protocol.wire.ServerFrame
 import com.messenger.protocol.wire.UploadKeysRequest
 import io.ktor.http.HttpHeaders
@@ -27,7 +26,6 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
 
@@ -35,10 +33,9 @@ fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") { messengerModule() }.start(wait = true)
 }
 
-@Serializable
-private data class CountResponse(val count: Int)
-
 private val serverJson = Json { ignoreUnknownKeys = true }
+
+private fun connectionKey(userId: String, deviceId: String) = "$userId $deviceId"
 
 private suspend fun DefaultWebSocketServerSession.sendFrame(frame: ServerFrame) {
     send(Frame.Text(serverJson.encodeToString(ServerFrame.serializer(), frame)))
@@ -50,14 +47,18 @@ private fun ApplicationCall.bearerToken(): String? =
         ?.removePrefix("Bearer ")
 
 /**
- * The relay server. It distributes prekey bundles and store-and-forwards encrypted envelopes
- * between clients over WebSockets. It cannot read message contents — it only sees ciphertext.
+ * The relay server. Distributes per-device prekey bundles and store-and-forwards encrypted
+ * envelopes between devices over WebSockets with at-least-once delivery (a per-device [MailboxStore]
+ * holds messages until the recipient acknowledges them). It cannot read message contents.
  */
-fun Application.messengerModule(store: InMemoryStore = InMemoryStore()) {
+fun Application.messengerModule(
+    store: InMemoryStore = InMemoryStore(),
+    mailbox: MailboxStore = InMemoryMailboxStore(),
+) {
     install(ContentNegotiation) { json(serverJson) }
     install(WebSockets)
 
-    // Currently-connected clients, keyed by userId (single device per user for now).
+    // Connected devices, keyed by (userId, deviceId).
     val connections = ConcurrentHashMap<String, DefaultWebSocketServerSession>()
 
     routing {
@@ -66,61 +67,64 @@ fun Application.messengerModule(store: InMemoryStore = InMemoryStore()) {
             call.respond(RegisterResponse(token))
         }
 
-        post("/keys/{userId}") {
+        post("/keys/{userId}/{deviceId}") {
             val userId = call.parameters["userId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
-            if (!store.exists(userId)) return@post call.respond(HttpStatusCode.NotFound)
-            if (!store.validateToken(userId, call.bearerToken())) {
+            val deviceId = call.parameters["deviceId"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            if (!store.exists(userId, deviceId)) return@post call.respond(HttpStatusCode.NotFound)
+            if (!store.validateToken(userId, deviceId, call.bearerToken())) {
                 return@post call.respond(HttpStatusCode.Unauthorized)
             }
-            store.uploadKeys(userId, call.receive<UploadKeysRequest>())
+            store.uploadKeys(userId, deviceId, call.receive<UploadKeysRequest>())
             call.respond(HttpStatusCode.OK)
         }
 
         get("/keys/{userId}") {
             val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-            val bundle = store.fetchBundle(userId) ?: return@get call.respond(HttpStatusCode.NotFound)
-            call.respond(bundle)
+            val bundles = store.fetchAllBundles(userId) ?: return@get call.respond(HttpStatusCode.NotFound)
+            call.respond(bundles)
         }
 
-        get("/keys/{userId}/count") {
-            val userId = call.parameters["userId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-            call.respond(CountResponse(store.unusedOneTimePreKeyCount(userId)))
-        }
-
-        webSocket("/ws/{userId}") {
+        webSocket("/ws/{userId}/{deviceId}") {
             val userId = call.parameters["userId"]
+            val deviceId = call.parameters["deviceId"]
             val token = call.request.queryParameters["token"]
-            if (userId == null || !store.exists(userId) || !store.validateToken(userId, token)) {
+            if (userId == null || deviceId == null || !store.exists(userId, deviceId) ||
+                !store.validateToken(userId, deviceId, token)
+            ) {
                 close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "unauthorized"))
                 return@webSocket
             }
-            connections[userId] = this
+
+            val key = connectionKey(userId, deviceId)
+            connections[key] = this
             try {
-                // Deliver anything queued while this user was offline.
-                store.drainQueue(userId).forEach { envelope -> sendFrame(ServerFrame.Deliver(envelope)) }
+                // (Re)deliver everything still pending for this device.
+                mailbox.pending(userId, deviceId).forEach { sendFrame(ServerFrame.Deliver(it)) }
 
                 for (frame in incoming) {
                     if (frame !is Frame.Text) continue
-                    val envelope = serverJson.decodeFromString(RelayEnvelope.serializer(), frame.readText())
-                    // Prevent sender spoofing: the envelope's "from" must be the authenticated user.
-                    if (envelope.from != userId) {
-                        sendFrame(ServerFrame.Ack(RelayAck(status = "rejected_sender_mismatch", queued = false)))
-                        continue
+                    when (val clientFrame = serverJson.decodeFromString(ClientFrame.serializer(), frame.readText())) {
+                        is ClientFrame.Send -> {
+                            val envelope = clientFrame.envelope
+                            // Prevent sender spoofing: "from" must be the authenticated device.
+                            if (envelope.fromUser != userId || envelope.fromDevice != deviceId) {
+                                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "sender mismatch"))
+                                return@webSocket
+                            }
+                            mailbox.put(envelope.toUser, envelope.toDevice, envelope)
+                            val target = connections[connectionKey(envelope.toUser, envelope.toDevice)]
+                            target?.sendFrame(ServerFrame.Deliver(envelope))
+                            sendFrame(ServerFrame.Accepted(envelope.messageId, queued = target == null))
+                        }
+
+                        is ClientFrame.Ack -> {
+                            // This device confirms receipt of a delivered message → drop from its mailbox.
+                            mailbox.remove(userId, deviceId, clientFrame.messageId)
+                        }
                     }
-                    val target = connections[envelope.to]
-                    val queued: Boolean
-                    if (target != null) {
-                        target.sendFrame(ServerFrame.Deliver(envelope))
-                        queued = false
-                    } else {
-                        store.enqueue(envelope)
-                        queued = true
-                    }
-                    // Acknowledge to the sender (also makes delivery ordering observable to clients).
-                    sendFrame(ServerFrame.Ack(RelayAck(queued = queued)))
                 }
             } finally {
-                connections.remove(userId, this)
+                connections.remove(key, this)
             }
         }
     }

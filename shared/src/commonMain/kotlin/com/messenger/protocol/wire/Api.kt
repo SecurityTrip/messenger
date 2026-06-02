@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 /**
  * Client <-> relay-server API contracts. Shared so both ends agree on the JSON shape. The server
  * only ever sees public key material and ciphertext.
+ *
+ * Multi-device: every endpoint is addressed by (userId, deviceId). A user has many devices, each
+ * with its own identity key, prekeys and E2E sessions; a sender fans a message out to every device.
  */
 
 @Serializable
@@ -14,10 +17,11 @@ data class WireOneTimePreKey(
     val publicKey: String,
 )
 
-/** Register an account and publish its long-term identity key. */
+/** Register a device under an account and publish its long-term identity key. */
 @Serializable
 data class RegisterRequest(
     val userId: String,
+    val deviceId: String,
     val identityKey: String,
     val registrationId: Int,
 )
@@ -28,7 +32,7 @@ data class RegisterResponse(
     val token: String,
 )
 
-/** Upload the signed prekey (+signature) and a batch of one-time prekeys to the server pool. */
+/** Upload the signed prekey (+signature) and a batch of one-time prekeys for one device. */
 @Serializable
 data class UploadKeysRequest(
     val signedPreKeyId: Int,
@@ -37,32 +41,71 @@ data class UploadKeysRequest(
     val oneTimePreKeys: List<WireOneTimePreKey> = emptyList(),
 )
 
-/** A message handed to the server for relay: who it is [to]/[from] plus the encrypted payload. */
+/** A prekey bundle for one specific device. */
 @Serializable
-data class RelayEnvelope(
-    val to: String,
-    val from: String,
-    val message: WireMessage,
+data class DeviceBundle(
+    val deviceId: String,
+    val bundle: WirePreKeyBundle,
 )
 
-/** Server -> sender acknowledgement that a relayed envelope was delivered or queued. */
+/** All currently-published device bundles for a user, returned when starting conversations. */
 @Serializable
-data class RelayAck(
-    val status: String = "accepted",
-    val queued: Boolean = false,
+data class DeviceBundles(
+    val userId: String,
+    val devices: List<DeviceBundle>,
 )
+
+@Serializable
+enum class ReceiptKind { DELIVERED, READ }
+
+/** The payload of a relayed envelope: either E2E ciphertext or a delivery/read receipt. */
+@Serializable
+sealed interface RelayPayload {
+    @Serializable
+    @SerialName("ciphertext")
+    data class Ciphertext(val message: WireMessage) : RelayPayload
+
+    @Serializable
+    @SerialName("receipt")
+    data class Receipt(val referencesMessageId: String, val kind: ReceiptKind) : RelayPayload
+}
 
 /**
- * Frames the server pushes to a connected client over the WebSocket. A tagged union (JSON "type"
- * discriminator) so the client can tell a delivered message from an acknowledgement.
+ * A message handed to the server for relay. [messageId] is the sender-generated id used both for
+ * delivery acknowledgement (the recipient acks this id) and as the stable id receipts reference.
  */
+@Serializable
+data class RelayEnvelope(
+    val messageId: String,
+    val toUser: String,
+    val toDevice: String,
+    val fromUser: String,
+    val fromDevice: String,
+    val payload: RelayPayload,
+)
+
+/** Frames the client sends to the server over the WebSocket. */
+@Serializable
+sealed interface ClientFrame {
+    @Serializable
+    @SerialName("send")
+    data class Send(val envelope: RelayEnvelope) : ClientFrame
+
+    /** Acknowledge receipt so the server removes the message from this device's mailbox. */
+    @Serializable
+    @SerialName("ack")
+    data class Ack(val messageId: String) : ClientFrame
+}
+
+/** Frames the server pushes to a connected client over the WebSocket. */
 @Serializable
 sealed interface ServerFrame {
     @Serializable
     @SerialName("deliver")
     data class Deliver(val envelope: RelayEnvelope) : ServerFrame
 
+    /** Sent back to the originator: the server accepted the message (delivered live or queued). */
     @Serializable
-    @SerialName("ack")
-    data class Ack(val ack: RelayAck) : ServerFrame
+    @SerialName("accepted")
+    data class Accepted(val messageId: String, val queued: Boolean) : ServerFrame
 }

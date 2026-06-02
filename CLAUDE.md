@@ -68,20 +68,22 @@ server/       Ktor + Netty JVM relay, depends on :shared
   (forward secrecy, PCS, skipped keys, persistence), SQLDelight storage with at-rest encryption,
   Ktor relay server, shared network client, hardening (safety numbers, signed-prekey rotation,
   one-time-prekey replenishment, server auth tokens + sender-spoof protection).
-- ⏳ **Phase 5d IN PROGRESS — multi-device + reliable delivery + read receipts.** The new wire
-  protocol is drafted in `protocol/wire/Api.kt` but **not yet propagated to server/client/tests, so
-  the project currently does not compile on that branch of work.** Design:
-  - Addressing is per **(userId, deviceId)**; each device has its own identity key, prekeys, sessions.
-  - `GET /keys/{user}` returns `DeviceBundles` (all devices); sender fans a message out to every device.
+- ✅ **Phase 5d complete — multi-device + reliable delivery + read receipts (55 tests green).**
+  - Addressing is per **(userId, deviceId)**; each device has its own identity key, prekeys, sessions
+    (Account has deviceId; Session PK is (contactId, deviceId); SessionStore.loadAllForContact).
+  - `GET /keys/{user}` returns `DeviceBundles` (all devices); `ConversationManager.startConversation`
+    /`send` **fan out** one envelope per recipient device (shared `messageId` = local ChatMessage.id).
   - `RelayEnvelope{messageId, toUser, toDevice, fromUser, fromDevice, payload}`;
     `RelayPayload` sealed = `Ciphertext(WireMessage)` | `Receipt(referencesMessageId, kind)`.
   - WS frames: `ClientFrame` = `Send|Ack`; `ServerFrame` = `Deliver|Accepted`.
-  - Reliable delivery: server `MailboxStore` (interface; in-memory impl for now) keyed by
-    (user,device) keeps each message until the recipient sends `Ack(messageId)`; redeliver all
-    pending on (re)connect → at-least-once.
-  - Read receipts: recipient references the original `messageId`; sender updates `MessageStatus`
-    (SENT→DELIVERED→READ). The sender uses its local `ChatMessage.id` as the wire `messageId` so
-    receipts map back directly.
+  - Reliable delivery: server `MailboxStore` (interface + `InMemoryMailboxStore`) keyed by
+    (user,device) keeps each message until the recipient sends `ClientFrame.Ack(messageId)`;
+    redelivers all pending on (re)connect → at-least-once. (Client should dedup duplicate deliveries
+    by messageId — not yet implemented; tests ack so no dups occur.)
+  - Read receipts: `ConversationManager.receive` returns `MessageReceived(message, deliveryReceipt)`
+    or `ReceiptReceived`; `markRead(localMessageId)` builds a READ receipt; receipts upgrade
+    `MessageStatus` (SENT→DELIVERED→READ). Message rows store peerDeviceId + senderMessageId so a
+    receipt can be addressed back and mapped to the sender's original message.
 - ⌛ Phase 6 (needs a Mac): Compose Multiplatform iOS UI, iOS Keychain `SecureKeyStore` impl, Xcode
   app, APNs push. Also pending: TLS/wss (deployment — reverse proxy or Ktor cert).
 
