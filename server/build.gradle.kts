@@ -35,5 +35,5 @@ dependencies {
 
 // Safety net: never let a hung test stall CI indefinitely.
 tasks.test {
-    timeout.set(Duration.ofMinutes(10))
+    timeout.set(Duration.ofMinutes(5))
 }

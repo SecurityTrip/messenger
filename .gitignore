@@ -5,6 +5,7 @@ build/
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDE
+.gigaide/
 .idea/
 *.iml
 .fleet/
