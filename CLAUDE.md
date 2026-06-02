@@ -59,12 +59,15 @@ shared/src/commonMain/kotlin/com/messenger/
   db/          SQLDelight .sq (under sqldelight/com/messenger/db/), DatabaseDriverFactory (expect)
   data/        IdentityStore, ContactStore, SessionStore, MessageStore
   domain/      Models.kt (ChatMessage, Contact, MessageDirection/Status)
-  app/         ConversationManager (orchestrator), MessengerComponent (DI root), net/MessengerApiClient
+  app/         ConversationManager (orchestrator), MessengerService (relay coordinator),
+               MessengerComponent (DI root), net/MessengerApiClient
 shared/src/jvmMain, iosMain   platform actuals (DatabaseDriverFactory; iosMain KeychainSecureKeyStore)
-server/       Ktor + Netty JVM relay, depends on :shared
+server/       Ktor + Netty JVM relay, depends on :shared. src/test also has PeerTool (CLI peer for
+              e2e, run via `:server:peerTool`) + opt-in network tests
 composeApp/   Compose Multiplatform iOS UI → "ComposeApp" framework; depends on :shared
-  src/commonMain/kotlin/com/messenger/ui/   App, ChatScreen, ChatViewModel
-  src/iosMain/kotlin/com/messenger/ui/      MainViewController (builds MessengerComponent w/ real Keychain)
+  src/commonMain/kotlin/com/messenger/ui/   App, SetupScreen, ChatScreen, ChatViewModel
+  src/iosMain/kotlin/com/messenger/ui/      MainViewController (builds MessengerComponent w/ real
+                                            Keychain; reads MESSENGER_SERVER/USER/PEER env to auto-connect)
 iosApp/       SwiftUI host (iOSApp.swift, ContentView wraps MainViewController); project.yml →
               `xcodegen generate` (the .xcodeproj + Info.plist are generated and gitignored)
 ```
@@ -77,7 +80,12 @@ iosApp/       SwiftUI host (iOSApp.swift, ContentView wraps MainViewController);
   (DerivedData in /tmp — keep build output out of any iCloud tree). Install/run on a booted sim with
   `xcrun simctl install/launch`. The Xcode pre-build phase runs `:composeApp:embedAndSignAppleFrameworkForXcode`
   and must `export JAVA_HOME` = JDK 21.
-- Run server: `./gradlew :server:run` (port 8080)
+- iOS app talks to the relay at `http://localhost:8080` (simulator → host). Cleartext is allowed by
+  `NSAllowsLocalNetworking` in Info.plist. End-to-end check: run the server, launch the app with env
+  `SIMCTL_CHILD_MESSENGER_USER=alice SIMCTL_CHILD_MESSENGER_PEER=bob` (auto-connects), then send it a
+  message with `./gradlew :server:peerTool --args="http://localhost:8080 bob alice hi there"`.
+- Run server: `./gradlew :server:run` (port 8080), or standalone via `:server:installDist` →
+  `server/build/install/server/bin/server` (frees the Gradle daemon for `:server:peerTool`).
 - **Gotchas:** never pipe gradle through `tail` (it masks the exit code — capture `${PIPESTATUS[0]}`
   or `rc=$?` first). Transient TLS failures to repo.maven.apache.org / github.com from this env —
   just retry. `server` `EndToEndNetworkTest` is opt-in (set env `RUN_NETWORK_TESTS=1`); it binds real
@@ -112,16 +120,25 @@ iosApp/       SwiftUI host (iOSApp.swift, ContentView wraps MainViewController);
     group, so `securityd` returns `errSecNotAvailable` (-25291); `KeychainSecureKeyStoreTest` asserts
     full behavior when the keychain is reachable and **skips otherwise** (real coverage will come from
     the app's host-app test target). All iOS targets compile + framework links.
-  - ✅ **Compose Multiplatform iOS app (runnable skeleton)** — `:composeApp` (Compose MP 1.8.0): demo
-    chat screen wired to the shared stack. Messages stream from `MessageStore.observeMessages`
-    (reactive); sending persists locally via `MessageStore.insert` — **SEAM** for the network loop.
-    `MainViewController` builds `MessengerComponent` with the real `KeychainSecureKeyStore` + native
-    SQLite; `iosApp/` is the SwiftUI host. Runs in the simulator (verified), which also validated
-    `KeychainSecureKeyStore` end-to-end in a real app context. Setup notes: needs `google()` repo
-    (Compose pulls androidx multiplatform libs); app must link `-lsqlite3` (SQLDelight native driver);
-    Info.plist needs `CADisableMinimumFrameDurationOnPhone=true` (Compose PlistSanityCheck).
-  - ⌛ Still pending (next): wire the network loop into the UI (provisioning → register → uploadKeys →
-    fetchBundles → `RelayConnection` send/receive/receipts); then APNs push; Xcode app polish.
+  - ✅ **Compose Multiplatform iOS app** — `:composeApp` (Compose MP 1.8.0): chat UI on the shared
+    stack, messages stream reactively from `MessageStore.observeMessages`. `MainViewController` builds
+    `MessengerComponent` with the real `KeychainSecureKeyStore` + native SQLite; `iosApp/` is the
+    SwiftUI host. Runs in the simulator (verified), which also validated `KeychainSecureKeyStore`
+    end-to-end in a real app context. Setup notes: needs `google()` repo (Compose pulls androidx
+    multiplatform libs); app links `-lsqlite3` (SQLDelight native driver); Info.plist needs
+    `CADisableMinimumFrameDurationOnPhone=true` (Compose PlistSanityCheck).
+  - ✅ **Network loop wired into the UI** — `app/MessengerService` coordinates the relay:
+    `start(user,device)` provisions → registers → uploads keys → opens the relay → runs a receive
+    loop (decrypt, ack, return delivery receipt); `sendMessage(peer,text)` opens a session via
+    `fetchBundles`/`startConversation` or sends on an existing one. UI: `SetupScreen` (username +
+    peer) → `ChatViewModel.send` calls the service. Verified on the simulator against the real relay:
+    the iOS app (Darwin WS client) exchanged an encrypted message with a JVM `peerTool` peer, with the
+    delivery receipt upgrading the sender's status. JVM coverage: `MessengerServiceNetworkTest`
+    (opt-in). Note: confine each client's DB access to one thread off-device (JVM `JdbcSqliteDriver`
+    isn't thread-safe; iOS `NativeSqliteDriver` is); close the relay WS before the HTTP client on
+    teardown or the WS reader hangs JVM exit.
+  - ⌛ Still pending (next): conversation/contact list + add/verify (safety numbers), message dedup on
+    reconnect, APNs push, Xcode app polish.
 - ⌛ Also pending: TLS/wss (deployment — reverse proxy or Ktor cert).
 
 ## Git

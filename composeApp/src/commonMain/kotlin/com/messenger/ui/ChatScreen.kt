@@ -33,15 +33,16 @@ import androidx.compose.ui.unit.dp
 import com.messenger.domain.ChatMessage
 import com.messenger.domain.MessageDirection
 
-/** The demo chat screen: a reactive list of message bubbles plus an input row. */
+/** Chat screen for a single conversation: a reactive list of message bubbles plus an input row. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel) {
+fun ChatScreen(viewModel: ChatViewModel, peerName: String) {
     val messages by viewModel.messages.collectAsState()
+    val error by viewModel.error.collectAsState()
     var input by remember { mutableStateOf("") }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Messenger — demo") }) },
+        topBar = { TopAppBar(title = { Text(peerName) }) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
@@ -52,20 +53,34 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 items(messages, key = { it.id }) { message -> MessageBubble(message) }
             }
 
+            error?.let { message ->
+                Text(
+                    text = message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val submit = {
+                    viewModel.clearError()
+                    viewModel.send(input)
+                    input = ""
+                }
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Message") },
-                    keyboardActions = KeyboardActions(onSend = { viewModel.send(input); input = "" }),
+                    keyboardActions = KeyboardActions(onSend = { submit() }),
                 )
                 Spacer(Modifier.width(8.dp))
                 Button(
-                    onClick = { viewModel.send(input); input = "" },
+                    onClick = submit,
                     enabled = input.isNotBlank(),
                 ) { Text("Send") }
             }

@@ -35,5 +35,14 @@ dependencies {
 
 // Safety net: never let a hung test stall CI indefinitely.
 tasks.test {
-    timeout.set(Duration.ofMinutes(5))
+    timeout.set(Duration.ofMinutes(10))
+}
+
+// Dev/e2e helper: a CLI messenger peer (see PeerTool.kt). Run:
+//   ./gradlew :server:peerTool --args="http://localhost:8080 bob alice 'hi'"
+tasks.register<JavaExec>("peerTool") {
+    group = "verification"
+    description = "Run a command-line messenger peer against a relay"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.messenger.server.PeerToolKt")
 }

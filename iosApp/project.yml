@@ -22,6 +22,9 @@ targets:
         CFBundleDisplayName: Messenger
         # Required by Compose Multiplatform (PlistSanityCheck) for high-refresh-rate displays.
         CADisableMinimumFrameDurationOnPhone: true
+        # Allow cleartext HTTP/WS to the local relay during development (localhost / *.local).
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
