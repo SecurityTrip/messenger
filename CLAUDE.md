@@ -18,6 +18,11 @@ relay that only ever sees ciphertext and public keys.
 - **JDK: build with 21 (or ≤23), NOT 24.** Gradle 8.11.1 chokes on Java 24 (`Could not create task …
   Type T not present`). On the macOS box use Corretto 21:
   `export JAVA_HOME=/Users/ilia/Library/Java/JavaVirtualMachines/corretto-21.0.3/Contents/Home`.
+- **Do NOT keep the repo in an iCloud-synced folder** (`~/Desktop`/`~/Documents` with "Desktop &
+  Documents" on). Build artifacts thrash iCloud, which evicts files mid-build → the working tree
+  "vanishes", the shell cwd resets, and `codesign` fails with *"resource fork, Finder information, or
+  similar detritus not allowed"* (`com.apple.fileprovider.fpfs#P` / `FinderInfo` stamped on the
+  `.app`). Keep the checkout outside iCloud and point Xcode `-derivedDataPath` outside it too.
 - **Native-dependency ABI rule:** every KMP dependency must be built with Kotlin ≤ 2.1.20 (klib
   `abi_version ≤ 1.201.0`). Kotlin/Native is ABI-gated; the JVM is not (so a bad dep passes JVM but
   fails the iOS build). This is why `kotlinx-serialization-json` is pinned to **1.8.1** (1.9.0 is
@@ -32,7 +37,9 @@ relay that only ever sees ciphertext and public keys.
 
 ## Stack
 Kotlin 2.1.20 · coroutines 1.10.2 · serialization-json 1.8.1 · datetime 0.6.2 · SQLDelight 2.1.0 ·
-Ktor 3.1.2 · libsodium bindings (ionspin) 0.9.2. Version catalog: `gradle/libs.versions.toml`.
+Ktor 3.1.2 · libsodium bindings (ionspin) 0.9.2 · Compose Multiplatform 1.8.0 (klib abi 1.201.0 — the
+last line still consumable by Kotlin 2.1.20; ≥1.9 is built with Kotlin 2.2 → unconsumable).
+Version catalog: `gradle/libs.versions.toml`.
 
 ## Crypto
 libsodium via ionspin `multiplatform-crypto-libsodium-bindings` (used directly in commonMain — no
@@ -53,13 +60,23 @@ shared/src/commonMain/kotlin/com/messenger/
   data/        IdentityStore, ContactStore, SessionStore, MessageStore
   domain/      Models.kt (ChatMessage, Contact, MessageDirection/Status)
   app/         ConversationManager (orchestrator), MessengerComponent (DI root), net/MessengerApiClient
-shared/src/jvmMain, iosMain   platform actuals (DatabaseDriverFactory; iOS Keychain TODO)
+shared/src/jvmMain, iosMain   platform actuals (DatabaseDriverFactory; iosMain KeychainSecureKeyStore)
 server/       Ktor + Netty JVM relay, depends on :shared
+composeApp/   Compose Multiplatform iOS UI → "ComposeApp" framework; depends on :shared
+  src/commonMain/kotlin/com/messenger/ui/   App, ChatScreen, ChatViewModel
+  src/iosMain/kotlin/com/messenger/ui/      MainViewController (builds MessengerComponent w/ real Keychain)
+iosApp/       SwiftUI host (iOSApp.swift, ContentView wraps MainViewController); project.yml →
+              `xcodegen generate` (the .xcodeproj + Info.plist are generated and gitignored)
 ```
 
 ## Build & test
 - Backend (works on Windows): `./gradlew :shared:jvmTest :server:test --console=plain`
 - iOS (macOS only): `./gradlew :shared:iosSimulatorArm64Test` · `./gradlew :shared:linkDebugFrameworkIosSimulatorArm64`
+- iOS app (macOS only): `cd iosApp && xcodegen generate`, then
+  `xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -sdk iphonesimulator -derivedDataPath /tmp/dd build`
+  (DerivedData in /tmp — keep build output out of any iCloud tree). Install/run on a booted sim with
+  `xcrun simctl install/launch`. The Xcode pre-build phase runs `:composeApp:embedAndSignAppleFrameworkForXcode`
+  and must `export JAVA_HOME` = JDK 21.
 - Run server: `./gradlew :server:run` (port 8080)
 - **Gotchas:** never pipe gradle through `tail` (it masks the exit code — capture `${PIPESTATUS[0]}`
   or `rc=$?` first). Transient TLS failures to repo.maven.apache.org / github.com from this env —
@@ -95,7 +112,16 @@ server/       Ktor + Netty JVM relay, depends on :shared
     group, so `securityd` returns `errSecNotAvailable` (-25291); `KeychainSecureKeyStoreTest` asserts
     full behavior when the keychain is reachable and **skips otherwise** (real coverage will come from
     the app's host-app test target). All iOS targets compile + framework links.
-  - ⌛ Still pending: Compose Multiplatform iOS UI, Xcode app, APNs push.
+  - ✅ **Compose Multiplatform iOS app (runnable skeleton)** — `:composeApp` (Compose MP 1.8.0): demo
+    chat screen wired to the shared stack. Messages stream from `MessageStore.observeMessages`
+    (reactive); sending persists locally via `MessageStore.insert` — **SEAM** for the network loop.
+    `MainViewController` builds `MessengerComponent` with the real `KeychainSecureKeyStore` + native
+    SQLite; `iosApp/` is the SwiftUI host. Runs in the simulator (verified), which also validated
+    `KeychainSecureKeyStore` end-to-end in a real app context. Setup notes: needs `google()` repo
+    (Compose pulls androidx multiplatform libs); app must link `-lsqlite3` (SQLDelight native driver);
+    Info.plist needs `CADisableMinimumFrameDurationOnPhone=true` (Compose PlistSanityCheck).
+  - ⌛ Still pending (next): wire the network loop into the UI (provisioning → register → uploadKeys →
+    fetchBundles → `RelayConnection` send/receive/receipts); then APNs push; Xcode app polish.
 - ⌛ Also pending: TLS/wss (deployment — reverse proxy or Ktor cert).
 
 ## Git

@@ -11,11 +11,13 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // Compose Multiplatform's iOS artifacts pull transitive androidx (lifecycle/annotation/
+        // collection) multiplatform libraries that are published only on Google's Maven.
+        google()
         mavenCentral()
     }
 }
 
 include(":shared")
 include(":server")
-// Enabled in later phases:
-// include(":composeApp")
+include(":composeApp")

@@ -10,6 +10,10 @@ sqldelight = "2.1.0"
 ktor = "3.1.2"
 koin = "4.0.4"
 logback = "1.5.16"
+# Compose Multiplatform 1.8.0: its Kotlin/Native klib is built with abi_version 1.201.0, i.e. consumable
+# by our Kotlin 2.1.20 compiler (verified via the CLAUDE.md klib-vetting procedure). Do NOT bump to
+# 1.9.x+ (built with Kotlin 2.2 → ABI 1.202+, unconsumable). Compose compiler plugin tracks `kotlin`.
+composeMultiplatform = "1.8.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -47,3 +51,5 @@ kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref =
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

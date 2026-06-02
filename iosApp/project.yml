@@ -1,0 +1,58 @@
+name: iosApp
+options:
+  bundleIdPrefix: com.messenger
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Gradle (invoked from the build phase) needs to write outside the sandbox.
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  iosApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: iosApp
+    info:
+      path: iosApp/Info.plist
+      properties:
+        CFBundleDisplayName: Messenger
+        # Required by Compose Multiplatform (PlistSanityCheck) for high-refresh-rate displays.
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.messenger.iosApp
+        # The Kotlin/Native framework is produced here by embedAndSignAppleFrameworkForXcode.
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../composeApp/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - ComposeApp
+          # The static framework references system SQLite (SQLDelight's native driver cinterop);
+          # link it explicitly since static frameworks don't carry transitive linker options.
+          - -lsqlite3
+    preBuildScripts:
+      - name: "Compile & embed ComposeApp framework (Gradle)"
+        basedOnDependencyAnalysis: false
+        script: |
+          # Xcode runs with the system JDK; force JDK 21 (Gradle 8.11.1 breaks on 24).
+          export JAVA_HOME=/Users/ilia/Library/Java/JavaVirtualMachines/corretto-21.0.3/Contents/Home
+          cd "$SRCROOT/.."
+          ./gradlew :composeApp:embedAndSignAppleFrameworkForXcode
+    postBuildScripts:
+      - name: "Strip extended attributes before code signing"
+        basedOnDependencyAnalysis: false
+        script: |
+          # The embedded framework / bundle carry xattrs that codesign rejects
+          # ("resource fork, Finder information, or similar detritus not allowed").
+          /usr/bin/xattr -rc "${TARGET_BUILD_DIR}/${WRAPPER_NAME}" || true
