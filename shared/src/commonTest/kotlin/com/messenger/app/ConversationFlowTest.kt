@@ -34,7 +34,7 @@ class ConversationFlowTest {
     )
 
     private fun device(): Device {
-        val db: MessengerDatabase = createMessengerDatabase(DatabaseDriverFactory().create())
+        val db: MessengerDatabase = createMessengerDatabase(DatabaseDriverFactory(inMemory = true).create())
         val cipher = BlobCipher(crypto, MasterKey.loadOrCreate(crypto, InMemorySecureKeyStore()))
         val identities = IdentityStore(db, cipher)
         val sessions = SessionStore(db, cipher, crypto)

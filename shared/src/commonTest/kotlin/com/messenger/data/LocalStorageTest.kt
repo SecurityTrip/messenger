@@ -26,7 +26,7 @@ class LocalStorageTest {
 
     private val crypto = LibsodiumCryptoProvider()
 
-    private fun newDatabase(): MessengerDatabase = createMessengerDatabase(DatabaseDriverFactory().create())
+    private fun newDatabase(): MessengerDatabase = createMessengerDatabase(DatabaseDriverFactory(inMemory = true).create())
 
     private fun cipher(): BlobCipher = BlobCipher(crypto, MasterKey.loadOrCreate(crypto, InMemorySecureKeyStore()))
 

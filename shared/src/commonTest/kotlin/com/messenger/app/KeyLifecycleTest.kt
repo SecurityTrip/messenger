@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class KeyLifecycleTest {
 
     private suspend fun component() = MessengerComponent.create(
-        driverFactory = DatabaseDriverFactory(),
+        driverFactory = DatabaseDriverFactory(inMemory = true),
         secureKeyStore = InMemorySecureKeyStore(),
         serverBaseUrl = "http://localhost:0",
     )

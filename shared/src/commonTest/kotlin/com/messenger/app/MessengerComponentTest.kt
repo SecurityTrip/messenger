@@ -9,7 +9,7 @@ import kotlin.test.assertEquals
 class MessengerComponentTest {
 
     private suspend fun component() = MessengerComponent.create(
-        driverFactory = DatabaseDriverFactory(),
+        driverFactory = DatabaseDriverFactory(inMemory = true),
         secureKeyStore = InMemorySecureKeyStore(),
         serverBaseUrl = "http://localhost:0",
     )

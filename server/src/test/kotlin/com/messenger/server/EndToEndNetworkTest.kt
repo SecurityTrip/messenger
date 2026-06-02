@@ -40,7 +40,7 @@ class EndToEndNetworkTest {
     }
 
     private fun device(baseUrl: String, userId: String): Device {
-        val db = createMessengerDatabase(DatabaseDriverFactory().create())
+        val db = createMessengerDatabase(DatabaseDriverFactory(inMemory = true).create())
         val cipher = BlobCipher(crypto, MasterKey.loadOrCreate(crypto, InMemorySecureKeyStore()))
         val manager = ConversationManager(
             crypto,

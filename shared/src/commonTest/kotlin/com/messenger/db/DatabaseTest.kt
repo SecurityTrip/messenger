@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 class DatabaseTest {
 
     private fun openDatabase(): MessengerDatabase =
-        createMessengerDatabase(DatabaseDriverFactory().create())
+        createMessengerDatabase(DatabaseDriverFactory(inMemory = true).create())
 
     @Test
     fun account_upsertAndSelect() {
